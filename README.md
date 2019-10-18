@@ -1,2 +1,2 @@
 # Pepper_4_Therapy
-Test repo for putting files on Pepper Robot
+Interaction scenario enabling Softbank's Pepper Robot to guide a human user through 2 physical exercises
