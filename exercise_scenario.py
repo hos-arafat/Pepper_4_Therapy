@@ -990,10 +990,6 @@ if __name__ == "__main__":
     global idPainRecognized
     idPainRecognized = painRecognized.signal.connect(onPainRecognized)
 
-    restRecognized = memory_service.subscriber("WordRecognized")
-    global idRestRecognized
-    idRestRecognized = painRecognized.signal.connect(onRestRecognized)
-
 
     #let it run
     app.run()
