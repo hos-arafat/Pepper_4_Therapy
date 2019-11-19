@@ -8,6 +8,9 @@ import threading
 
 
 def parse_args():
+    """
+    Parses and returns the command line arguments
+    """
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--pip", type=str, default=os.environ['PEPPER_IP'],
@@ -18,12 +21,14 @@ def parse_args():
                         help="language")
     parser.add_argument("--speed", type=int, default=100,
                         help="speed")
-    print(asr_on)
-    # Parse the command line
+
     return parser.parse_args()
 
 def connect_to_pep(pip, pport):
-    #Starting application
+    """
+    Connects to Pepper robot and returns an app that runs the code on the robot
+    """
+
     try:
         connection_url = "tcp://" + pip + ":" + str(pport)
         app = qi.Application(["Memory Read", "--qi-url=" + connection_url ])
@@ -34,19 +39,22 @@ def connect_to_pep(pip, pport):
     return app
 
 def check_event(touch_service):
-    # larm = False
-    # rarm = False
+    """
+    Returns 0 or 1 to indicate if Pepper's left or right hands were touched
+    """
+
     arm = -1
+    # Get current status of touch sensors
     s = touch_service.getStatus()
-    #print s
 
     for e in s:
+        # Return 0 if Left Arm sensor is touched
         if e[0]=='LArm' and e[1]:
-             #larm = True
              arm = 0
              print "Left arm touched!"
+        
+        # Return 1 if Right Arm sensor is touched
         if e[0]=='RArm' and e[1]:
-            #rarm = True
             arm = 1
             print "Right arm touched!"
     return arm
@@ -55,13 +63,17 @@ def check_event(touch_service):
 
 
 def monitor_fist_bump(memory_service, touch_service, right_count, left_count, ex_num):
+    """
+    (RUN FOR THE DOCTOR / EXERCISE INSTRUCTOR ONLY.
+    FOR THE PURPOSES OF RECORDING INSTRUCTIONAL VIDEO THAT PLAYS ON THE TABLET FOR USERS)
+
+    Checks to see if the exercise instructor "fist-bumped" Pepepr, if so, it moves the joints in the 
+    exercise position and starts the exercise countdown timer
+    """
 
     global fist_bump
     global exercise_dict
     my_pos = [0.00, -0.21, 1.00, 0.13, -1.24, -0.52, 1.00, 1.00, -0.14, 1.22, 0.52, -1.00]
-
-    rhMemoryDataValue = "Device/SubDeviceList/RHand/Touch/Back/Sensor/Value"
-    lhMemoryDataValue = "Device/SubDeviceList/LHand/Touch/Back/Sensor/Value"
 
     t = threading.currentThread()
     
@@ -69,6 +81,7 @@ def monitor_fist_bump(memory_service, touch_service, right_count, left_count, ex
 
     while getattr(t, "do_run", True):
 
+        # Check if either hand's tactile sensor was touched
         b = check_event(touch_service)
 
         if b==0 or b==1:
@@ -77,61 +90,63 @@ def monitor_fist_bump(memory_service, touch_service, right_count, left_count, ex
             t.do_run = False  
             time.sleep(1)        
 
+            # Unsubscribe from ASR as it is not needed right now
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
         
+            # Move joints to exercise configuration by calling the "move" function on its own thread
             exercise_thread = threading.Thread(name = "move_to_ex_1", target = move, args = (session, my_pos))
             exercise_thread.daemon = True
             exercise_thread.start()
             
             time.sleep(2)
             
+            # Say string by calling "my_say" function on its own thread
             start_timer1_str = "^mode(disabled) Okay ! Starting timer"  
             say_st_time1_thread = threading.Thread(name = "say_timer_1", target = my_say, args = (app, start_timer1_str, language, speed))
             say_st_time1_thread.daemon = True
             say_st_time1_thread.start()
             say_st_time1_thread.do_run = False
 
+            # Display 10 second countdown video on tablet by calling "vid_disp" function on its own thread
             timer1_display_timer_thread = threading.Thread(name = "diplay_ex_1_timer", target = vid_disp, args=(exercise_dict["timer"]["url"],))
             timer1_display_timer_thread.daemon = True        
             timer1_display_timer_thread.start()
             
-            if ex_num == 1:
-
-                monitorThread = threading.Thread(name = "monitor_hands_ex1", target = rhMonitorThread, args = (memory_service, touch_service, right_count, left_count, 1))
-                monitorThread.daemon = True
-                monitorThread.start()
-
-            elif ex_num ==2:
-
-                monitorThread = threading.Thread(name = "monitor_hands_ex2", target = rhMonitorThread, args = (memory_service, touch_service, right_count, left_count, 2))
-                monitorThread.daemon = True
-                monitorThread.start()
+            # Start the execution monitoring for exercise sequence by calling "run_exercise" function on its own thread
+            monitorThread = threading.Thread(name = "monitor_hands_ex1", target = run_exercise, args = (memory_service, touch_service, right_count, left_count, ex_num))
+            monitorThread.daemon = True
+            monitorThread.start()
 
 
 def get_doc(memory_service, touch_service, right_count, left_count, ex_num):
+    """
+    After asking the user if they need their doctor,
+    This function checks to see if the user touched any of Peppers hands 
+    to indicate that they do need their doctor
+    """
 
     global exercise_dict
     global user_name
-
-    rhMemoryDataValue = "Device/SubDeviceList/RHand/Touch/Back/Sensor/Value"
-    lhMemoryDataValue = "Device/SubDeviceList/LHand/Touch/Back/Sensor/Value"
 
     t = threading.currentThread()
     
     print "Thread that while loops is", t.getName()
 
+    # Initialize Flags that make Pepper say the strings ONLY ONCE inside the while loop
     said_calling = False
     said_done = False
 
+    # While the thread is running, do
     while getattr(t, "do_run", True):
-        
-        #print "Running exercise\n"
 
     
+        # Check if either hand's tactile sensor was touched
         b = check_event(touch_service)
 
         if b==0 or b==1:
+            
+            # If either hand was touched, shut down thread to exit the while loop and update flags
             print("Getting Doctor!")
             t.do_run = False            
 
@@ -140,7 +155,9 @@ def get_doc(memory_service, touch_service, right_count, left_count, ex_num):
             in_pain = True
             print "value of in pain is", in_pain
 
+            # If Pepper hasn't said the "Calling the doctor" string yet
             if said_calling == False:
+                # Say "Calling Doctor" by calling the "my_say" function on its own thread
                 doc_str = "^start(animations/Stand/Gestures/CalmDown_6) Calling the doctor now"  
                 print doc_str
                 doc_say_thread = threading.Thread(name = "say_getting_doc", target = my_say, args = (app, doc_str, language, speed))
@@ -150,7 +167,7 @@ def get_doc(memory_service, touch_service, right_count, left_count, ex_num):
     
                 said_calling = True
 
-                # Show a video or image to indicate that you are calling the doctor
+                # Show an image to indicate that you are calling the doctor by calling "vid_disp" on its own thread
                 video_display_dial_thread = threading.Thread(name = "diplay_dialing_video", target = vid_disp, args=(exercise_dict["dial"]["url"],))
                 video_display_dial_thread.daemon = True        
                 video_display_dial_thread.start()
@@ -158,29 +175,45 @@ def get_doc(memory_service, touch_service, right_count, left_count, ex_num):
 
                 time.sleep(4)
 
+
+            # If Pepper hasn't said the "Called the doctor" string yet
             if said_done == False:
 
-                called_doc_str =  "^start(animations/Stand/Gestures/CalmDown_6) Done. Successfully Called the Doctor. Doctor should be here soon"
+                # Say the string by calling the "my_say" function on its own thread
+                called_doc_str =  "^start(animations/Stand/Gestures/CalmDown_6) Done. Just relax. Doctor should be here shortly."
                 print called_doc_str
                 say_called_doc_thread = threading.Thread(name = "say_cald_doc", target = my_say, args = (app, called_doc_str, language, speed))
                 say_called_doc_thread.start()
                 say_called_doc_thread.do_run = False   
 
+                # Update the flag
                 said_done = True
 
+                # Show an image to indicate that you are DONE calling the doctor by calling "vid_disp" on its own thread
                 video_display_done_thread = threading.Thread(name = "diplay_done_video", target = vid_disp, args=(exercise_dict["done"]["url"],))
-                video_display_done_thread.daemon = True        
-                video_display_done_thread.start()
+                video_display_done_thread.daemon = True
                 time.sleep(2)
                 video_display_done_thread.do_run = False           
 
+            # UNsubscribe from ASR service and shut down the app / code running on Pepper
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
             app.stop()            
             app.stop()
 
 
-def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_num):
+def run_exercise (memory_service, touch_service, right_count, left_count, ex_num):
+    """
+    Runs the first and second exercise; namely, it moves Pepper's joints in the exercise configuration,
+    starts the countdown timer for the duration of the exercise and monitors execution.
+
+    Also responsible for the speech after each exercise, as follows:
+    - After the first exercise
+        Pepper asks the user if they are physically okay to continue onwards to the second exercise
+        
+    - After the second exercise
+        Pepper commends the user for finishing both exercises
+    """
 
     global exercise_dict
     global user_name
@@ -191,24 +224,28 @@ def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_
     t = threading.currentThread()
     default_pos = [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]
 
+    # Get current time
     start_time = time.time()
     
     print "Thread that while loops is", t.getName()
 
+    # Initialize Flags that make Pepper say the strings ONLY ONCE inside the while loop
     said_gj = False
     said_keepup = False
 
-    while getattr(t, "do_run", True):
-        
-        #print "Running exercise\n"
 
-    
+    while getattr(t, "do_run", True):
+
+        # Check if either hand's tactile sensor was touched
         b = check_event(touch_service)
 
-        if b==0:       
+        # If the tactile sensor on the LEFT hand was touched
+        if b==0:      
+            # Increment counter that keeps track of exercise execution and print value for debugging 
             left_count +=1
             print "Left Hand value thread=", memory_service.getData(lhMemoryDataValue)
 
+            # Say the number of times user touched the LEFT sensor so far (count) by calling "my_say" on its own threads
             strsay = "^mode(disabled)" + str(left_count) + "^mode(disabled) Left"
             print strsay
             sayThread = threading.Thread(name = "say_L_hand_touched", target = my_say, args = (app, strsay, language, speed))
@@ -216,72 +253,73 @@ def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_
             sayThread.start()
             time.sleep(1)
 
+        # If the tactile sensor on the RIGHT hand was touched
         elif b==1:
+            # Increment counter that keeps track of exercise execution and print value for debugging
             print "Right Hand value thread=", memory_service.getData(rhMemoryDataValue)
             right_count +=1 
 
+            # Say the number of times user touched the RIGHT sensor so far (count) by calling "my_say" on its own threads
             strsay = "^mode(disabled)" + str(right_count) + "^mode(disabled) Right" 
             print strsay
             say2Thread = threading.Thread(name = "say_R_hand_touched", target = my_say, args = (app, strsay, language, speed))
             say2Thread.daemon = True
             say2Thread.start()
             time.sleep(1)
-
-
-        #print "Any hand touched: ", b
         
-
+        # Get elapsed time since the start of the exercise
         elapsed_time =  time.time() - start_time
-        #print "time elapsed is", elapsed_time
 
-        if elapsed_time >= 4 and said_gj == False:
-            # say "Good job !"
-            gj_str =  "^mode(disabled) Good job %s ! " %user_name
-            print gj_str
-            say_gj_thread = threading.Thread(name = "say_gj", target = my_say, args = (app, gj_str, language, speed))
-            say_gj_thread.start()
-            say_gj_thread.do_run = False
-            said_gj = True 
-
-        elif elapsed_time >= 7 and said_keepup == False:   
-            # say "Keep it up ! Just 10 seconds left!"  
-            keepup_str =  "^mode(disabled) Keep it up %s, Just 4 seconds left!" %user_name
+        # If 5 seconds have passed since the exercise began
+        if elapsed_time >= 5 and said_keepup == False:   
+            
+            # Motivate the user and say "Keep going" by calling the "my_say" function on its own thread
+            keepup_str =  "^mode(disabled) Keep going, almost there ! "
             print keepup_str
             say_keepup_thread = threading.Thread(name = "say_keepup", target = my_say, args = (app, keepup_str, language, speed))
             say_keepup_thread.start()
             say_keepup_thread.do_run = False
+            # Update the flag to reflect that Pepper already said the string
             said_keepup = True
 
+        # If around 10 ~ 12 seconds have passed
         elif elapsed_time >= 12:     
-            #exercise_thread.do_run = False   
-            print "Time is up !"
+   
+            # The 10 seconds of exercise are done
+            print "Exercise time is done"
 
+            # Say exercise is done by calling the "my_say" function on its own thread
             end_timer2_str = "^start(animations/Stand/Gestures/Far_2) Time's up! ^wait(animations/Stand/Gestures/Far_2) Well done %s !" %user_name  
             say_e_time2_thread = threading.Thread(name = "say_time_up", target = my_say, args = (app, end_timer2_str, language, speed))
             say_e_time2_thread.daemon = True
             say_e_time2_thread.start()
             say_e_time2_thread.do_run = False
 
+            # Wait for 2 seconds until Pepper finsihes saying the above string
             time.sleep(2)
 
+            # Move joints to exercise configuration by calling the "move" function on its own thread
             move_thread = threading.Thread(name = "move_to_def", target = move, args = (session, default_pos))
             move_thread.start()
             time.sleep(1)
             move_thread.do_run = False
-            #sayThread.do_run = False
-            #say2Thread.do_run = False
             time.sleep(1)
-            #motion_service.angleInterpolation(jointsNames, default_pos, 3.0, isAbsolute)
+
+            # Shut down thread to exit the while loop
             t.do_run = False
-            print "If condition is met ! Exiting while loop"
-            #break
-                    
+            
+
+    # Prompt for debugging purposes   
     print "Exited the while loop of the Thread"
+
+    # If we just finished the first exercise
     if ex_num == 1:
+        # Update global flag
         exercise_dict["first"]["isDone"] = True
         print "First exercise just finished", exercise_dict["first"]["isDone"]
 
-        ask_second_str = "^start(animations/Stand/Gestures/Think_1) Are you okay to keep going %s ? Ready for the next exercise ? ^wait(animations/Stand/Gestures/Think_1)" %user_name
+        # Ask if user is okay to continue onwards to the second exercise by calling "my_say" function on its own thread
+        ask_second_str = "^start(animations/Stand/Gestures/Think_1) Let's keep going ? ^wait(animations/Stand/Gestures/Think_1)"
         print ask_second_str
         ask_ready42_thread = threading.Thread(name = "ask_2nd_ex", target = my_say, args = (app, ask_second_str, language, speed))
         ask_ready42_thread.daemon = True
@@ -291,12 +329,13 @@ def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_
         asr_service.subscribe("Test_ASR")
         asr_on = True
 
-        #subWordRecognized.signal.connect(onWordRecognized)
-
+    # If we just finished the second exercise
     elif ex_num == 2:
+        # Update global flag
         exercise_dict["second"]["isDone"] = True
         
-        all_done_str = "^start(animations/Stand/Gestures/Happy_4) All exercises done. Good work ^wait(animations/Stand/Gestures/Happy_4) %s !" %user_name
+        # Commend the user on doing a good job by calling "my_say" function on its own thread
+        all_done_str = "^start(animations/Stand/Gestures/Happy_4) That was a great session! Great job! ^wait(animations/Stand/Gestures/Happy_4) See you in our next scheduled appointment. Have a great day!"
         print all_done_str
         all_done_thread = threading.Thread(name = "say_all_done_gj", target = my_say, args = (app, all_done_str, language, speed))
         all_done_thread.daemon = True
@@ -304,8 +343,7 @@ def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_
         time.sleep(4)
         all_done_thread.dorun = False
         
-        #asr_service.unsubscribe("Test_ASR")
-        #asr_on = False
+        # After both exercise are done, shut down the app
         app.stop()
 
     
@@ -314,45 +352,43 @@ def rhMonitorThread (memory_service, touch_service, right_count, left_count, ex_
 
 
 def my_say(app, strsay, language, speed):
+    """
+    Makes Pepper say / utter a text with a given speed and "Animated Speech" configuration
+    """
 
     app.start()
     session = app.session
 
-
-    """
-    Say a text with a local configuration.
-    """
     # Get the service ALAnimatedSpeech.
-
     asr_service = session.service("ALAnimatedSpeech")
 
     # set the local configuration
     configuration = {"bodyLanguageMode":"contextual"}
 
-    # string to say
-    #strsay = "Hello, I am a robot !"
-
     # say the text with the local configuration
     asr_service.say(strsay, configuration)
 
+    # Get the service ALTextToSpeech and set the speaking volume
     tts_service = session.service("ALTextToSpeech")
-    tts_service.setVolume(0.2)    
-    #tts_service.setLanguage(language)
-    #tts_service.setParameter("speed", speed)
-    #tts_service.say(strsay)
-    print "  -- Say: "+strsay
+    tts_service.setVolume(0.8)    
+    
+    # Print the uttered string for debugging purposes
+    print "  -- Say: " + strsay
 
     return
 
 def move(session, pos):
+    """
+    Moves Pepper's shoulders, arms, and hands joints to either the "default" or the "exercise" configurations
+    """
 
+    # List of Pepper's joints we are want to move
     jointsNames = ["HeadYaw", "HeadPitch",
                "LShoulderPitch", "LShoulderRoll", "LElbowYaw", "LElbowRoll", "LWristYaw",
                "RShoulderPitch", "RShoulderRoll", "RElbowYaw", "RElbowRoll", "RWristYaw"]
 
-    #my_pos =      [0.00, -0.21, 0.00, 0.13, 0.00, -0.52, 0.01, 0.00, -0.14, 0.00, 0.52, -0.01]
-    #default_pos = [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]
 
+    # If we passed an invalid configuration to this function, exit and raise error
     if (pos==None):
         print 'No joint values.'
         sys.exit(0)
@@ -360,41 +396,48 @@ def move(session, pos):
     print "Set joint values: ", pos
     isAbsolute = True
 
-    #Starting services
+    # Get Motion service 
     motion_service  = session.service("ALMotion")
 
+    # Set the stiffness of the joints 
     names = ["Head", "LArm", "RArm"]
     stiffnessLists = 0.8
     timeLists = 1.0
     motion_service.stiffnessInterpolation(names, stiffnessLists, timeLists)        
     
+    # Print the position we are about to move to for debugging
     if pos == [0.00, -0.21, 1.00, 0.13, -1.24, -0.52, 1.00, 1.00, -0.14, 1.22, 0.52, -1.00]:
         print "moving to my pos"
     elif pos == [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]:
         print "moving to default pos"
-    else:
-        print "fist bump pos"
 
+    # Move the joints
     motion_service.angleInterpolation(jointsNames, pos, 1.0, isAbsolute)
-    #time.sleep(2)
 
     return
 
 def onNameRecognized(value):
+    """
+    Callback function that runs whenever the Automatic Speech Recognition (ASR) module 
+    detects that the user said their name (in this case, the name "Luca")
 
+    The fucntion makes Pepper greet the user and ask them if they are ready to start the entire session
+    """
+
+    # Print string detected by ASR for debugging
     print "value on NAME recog=",value
+    
+    # Global flags
     global greeting_done
     global first_exercise_done
     
     global idNameRecognized
 
     global user_name
-    
 
-    #print "(onNameRecog) Is greeting done yet ?", greeting_done
-    #global asr_on
-
-    if  greeting_done == False and value[0] != "yes" and value[0] != "pain" and value [0] != "no" and value [0] != "rest" and value[1] > 0.42:
+    # If ASR detects "YES" and we are yet to greet the user
+    if  greeting_done == False and value[0] != "yes" and value[0] != "pain" and value [0] != "no" and value [0] != "rest" and value[1] > 0.45:
+        # Say "Hello USER" by calling "my_say" on its dedicated thread
         user_name = value[0]
         intro_str = "Hello, %s" %user_name
         print intro_str
@@ -402,54 +445,68 @@ def onNameRecognized(value):
         intro_say_thread.start()
         intro_say_thread.do_run = False
 
+        # Update global flag to reflect that we already did the greeting
         greeting_done = True
-        #print "greeting done in function", greeting_done
 
         time.sleep(1)
 
-        #global asr_on
-        #if asr_on == True:
-        #asr_service.unsubscribe("Test_ASR")
-        #asr_on = False
+        # Disconnect this callback function so that it is not called whenever the ASR detects "Yes/No"
         nameRecognized.signal.disconnect(idNameRecognized)
-        #app.stop()
-        start_str = "^start(animations/Stand/Gestures/Think_1) Are you ready to start the session ?"  
+
+        # Ask the user if they are ready to start by calling "my_say" on its dedicated thread
+        start_str = "^start(animations/Stand/Gestures/Think_1) Are you ready to start our session ?"  
         print start_str
         start_say_thread = threading.Thread(name = "say_r_u_ready", target = my_say, args = (app, start_str, language, speed))
         start_say_thread.daemon = True
         start_say_thread.start()
         start_say_thread.do_run = False
 
-        #idNameRecognized = nameRecognized.signal.connect(onNameRecognized)
-
 
 def onPainRecognized(value):
+    """
+    Callback function that runs whenever the Automatic Speech Recognition (ASR) module 
+    detects that the user said "Yes" or "No" to indicate that they need their doctor
 
+    - If the user says "Yes":
+        The fucntion makes Pepper say that she is calling the doctor, comforts the user to relax as
+        their doctor will be here soon
+    
+    - If the user says "No":
+        The fucntion makes Pepper tell the user they should take a long rest, Pepper then
+        displays 30 second timer on the tablet and come back when they are feeling back to full fitness 
+    """
+    
+    # Print string detected by ASR for debugging
     print "value in PAIN Recog=",value
+
+    # Global flags
     global greeting_done
     global in_pain
     global ask_pain
     global asr_on
     global exercise_dict
-    #in_pain = True
 
     global not_ready
 
-
+    # Joint poistions that will make Pepper's hands closer to the user to touch
     my_pos = [0.00, -0.21, 1.00, 0.13, -1.24, -0.52, 1.00, 1.00, -0.14, 1.22, 0.52, -1.00]
-    
+
+    # If ASR detects "YES" and greeting, first exercise are done and we already aksed if the user needs the doctor
     if greeting_done == True and value[0] == "yes" and value[1] >= 0.42:
         if exercise_dict["first"]["isDone"] == True and exercise_dict["second"]["isDone"] == False and ask_pain == True and not_ready == False:    
+            # Update flag and print its value for debugging
             in_pain = True
             print "value of in pain is", in_pain
-            doc_str = "^start(animations/Stand/Gestures/CalmDown_6) Calling the doctor now"  
+
+            # Say "Calling Doctor" by calling the "my_say" function on its own thread
+            doc_str = "^start(animations/Stand/Gestures/CalmDown_6) Okay, calling the doctor now."  
             print doc_str
             doc_say_thread = threading.Thread(name = "say_getting_doc", target = my_say, args = (app, doc_str, language, speed))
             doc_say_thread.daemon = True
             doc_say_thread.start()
             doc_say_thread.do_run = False
 
-            # Show a video or image to indicate that you are calling the doctor
+            # Show an image to indicate that you are calling the doctor by calling "vid_disp" on its own thread
             video_display_dial_thread = threading.Thread(name = "diplay_dialing_video", target = vid_disp, args=(exercise_dict["dial"]["url"],))
             video_display_dial_thread.daemon = True        
             video_display_dial_thread.start()
@@ -457,85 +514,125 @@ def onPainRecognized(value):
 
             time.sleep(4)
 
-            called_doc_str =  "^start(animations/Stand/Gestures/CalmDown_6) Done. Successfully Called the Doctor. Doctor should be here soon"
+            # Say the "Just relax" string by calling the "my_say" function on its own thread
+            called_doc_str =  "^start(animations/Stand/Gestures/CalmDown_6) Done, just relax, the doctor will be here shortly."
             print called_doc_str
             say_called_doc_thread = threading.Thread(name = "say_cald_doc", target = my_say, args = (app, called_doc_str, language, speed))
             say_called_doc_thread.start()
             say_called_doc_thread.do_run = False   
 
+            # Show an image to indicate that you are DONE calling the doctor by calling "vid_disp" on its own thread
             video_display_done_thread = threading.Thread(name = "diplay_done_video", target = vid_disp, args=(exercise_dict["done"]["url"],))
             video_display_done_thread.daemon = True        
             video_display_done_thread.start()
             time.sleep(2)
             video_display_done_thread.do_run = False           
 
+            # UNsubscribe from ASR service and shut down the app / code running on Pepper
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
             app.stop()
 
+    # If ASR detects "NO" and greeting, first exercise are done and we already aksed if the user needs the doctor
     elif greeting_done == True and value[0] == "no" and value[1] >= 0.51:
         if exercise_dict["first"]["isDone"] == True and exercise_dict["second"]["isDone"] == False and ask_pain == True:
             
-
-            inquire_str = "^start(animations/Stand/Gestures/Explain_7) You are not ready for exercise 2. Let's rest for 30 seconds and end this session. ^wait(animations/Stand/Gestures/Explain_7)"
+            # Say the string by calling the "my_say" function on its own thread
+            inquire_str = "^start(animations/Stand/Gestures/Explain_7) Okay, no problem. You deserve the rest anyway. ^wait(animations/Stand/Gestures/Explain_7)"
             print inquire_str
             say_inquiry_thread = threading.Thread(name = "say_inquiry", target = my_say, args = (app, inquire_str, language, speed))
             say_inquiry_thread.daemon = True
             say_inquiry_thread.start()
             say_inquiry_thread.do_run = False
 
+            # Wait until Pepper finishes saying the string and update flag
             time.sleep(6)
-            
             not_ready = True
 
-            #monitorThread = threading.Thread(name = "monitor_hands_for_doc", target = get_doc, args = (memory_service, touch_service, right_count, left_count, 1))
-            #monitorThread.daemon = True
-            #monitorThread.do_run = False
-            #monitorThread.start()
+            # Default joint configuration that puts minimum / no load on joint motors
+            default_pos = [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]
 
-            count_30_str = "^start(animations/Stand/Gestures/ShowTablet_3) Counting 30 seconds of rest now ^wait(animations/Stand/Gestures/ShowTablet_3)"  
-            print count_30_str
-            say_c30_thread = threading.Thread(name = "say_counting_30", target = my_say, args = (app, count_30_str, language, speed))
-            say_c30_thread.daemon = True
-            say_c30_thread.start()
-            say_c30_thread.do_run = False
+            # Move joints to default joint configuration by calling the "move" function on its own thread
+            move_def_thread = threading.Thread(name = "move_to_def", target = move, args = (session, default_pos))
+            move_def_thread.daemon = True
+            move_def_thread.start()   
         
+            # Get current time
             start_time = time.time()
 
+            # Unsubscribe from ASR it is not needed right now
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
 
+            # Display 30 second countdown video by calling "vid_disp" function on its own thread
             video_display_2_thread = threading.Thread(name = "diplay_timer_video", target = vid_disp, args=(exercise_dict["timer2"]["url"],))
             video_display_2_thread.daemon = True        
             video_display_2_thread.start()
         
-            #time.sleep(5)            
+            # Wait until 30 second countdown video is done
             while (time.time() - start_time < 32):
                 pass
 
-            rest_str = "Rest is done! Schedule a new session when you feel better. See you!"  
+            # Say string by calling "my_say" function on its own thread
+            rest_str = "^start(animations/Stand/Gestures/CalmDown_6) Hope you feel better. Let's re-schedule our session for when you're back at a 100 percent. See you!"  
             print rest_str
             rest_say_thread = threading.Thread(name = "say_rest_done", target = my_say, args = (app, rest_str, language, speed))
             rest_say_thread.daemon = True
             rest_say_thread.start()
             rest_say_thread.do_run = False
 
+            # Wait until Pepper is done saying the string
             time.sleep(3)
 
+            # Shut down the app / code running on Pepper
             app.stop()
 
     return
 
 
 def onWordRecognized(value):
-    
+    """
+    Callback function that runs whenever the Automatic Speech Recognition (ASR) module detects that the
+    user said "Yes" or "No" to indicate whether or not they are ready to start the entire session and each exercise
+
+    *** For starting the entire session
+        - If the user says "Yes":
+            Pepper says "Let's start" and displays instructional video for the first exercise on the tablet
+            by calling the "vid_disp" function
+        
+        - If the user says "No":
+            Pepper ends the interaction and informs the user to re-schedule when they are feeling better
+
+    *** For starting the first exercise
+        - If the user says "Yes":
+            Pepper displays the countdown timer for the first exercise on the tablet and calls the
+            "run_exercise" function 
+        
+        - If the user says "No":
+            Pepper ends the interaction and informs the user to re-schedule when they are feeling better
+
+    *** For starting the second exercise
+        - If the user says "Yes":
+            Pepper gives the user some rest by displaying a countdown timer for rest period.
+            Afterwards, it displays the instructional video for the second exercise on the tablet 
+            by calling the "vid_disp" function
+        
+        - If the user says "No":
+            Pepper asks if the user is not okay to start due to being in pain and if they
+            need it to call their doctor, it then runs the "get_doc" function to monitor either hands
+            in case the user touches them to indicate they do indeed want their doctor
+    """
+    # Print string detected by ASR for debugging
     print "value on WORD recog=",value
+    
+    # Global flags
     global greeting_done
     global showed_first_video
     global showed_second_video
-    #print "(onWORDrecog) Is greeting done yet ?", greeting_done
+    
     global asr_on
-    #print "(onWORDrecog) Is greeting done yet ?", greeting_done
+    
+
     global exercise_dict
     print "First exercise done ", exercise_dict["first"]["isDone"]
     global in_pain
@@ -547,128 +644,118 @@ def onWordRecognized(value):
 
     global fist_bump
 
-    #old # my_pos = [0.00, -0.21, 0.00, 0.13, 0.00, -0.52, 0.01, 0.00, -0.14, 0.00, 0.52, -0.01]
+    # Default and Exercise joint positions
     default_pos = [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]
     my_pos = [0.00, -0.21, 1.00, 0.13, -1.24, -0.52, 1.00, 1.00, -0.14, 1.22, 0.52, -1.00]
 
+    # If ASR detects "YES" and greeting the user is done
     if greeting_done == True and showed_first_video == False and showed_second_video == False and value[0] == "yes" and value[1] >= 0.41:
         if exercise_dict["first"]["isDone"] == False and in_pain == False:
             print "Starting First exercise!"
 
-            #asr_service.unsubscribe("Test_ASR")
-            #asr_on = False
-            
-
-            #subWordRecognized.signal.disconnect(idSubWordRecognized)
-                
-            #t = threading.currentThread()
-
-            #while getattr(t, "do_run", True):
-            strsay = "^start (animations/Stand/Gestures/ShowTablet_3) Here is a video of exercise ^wait(animations/Stand/Gestures/ShowTablet_3)" + exercise_dict["first"]["number"]
+            # Say "Video for first exercise" string by calling "my_say" function on its own thread
+            strsay = "^start (animations/Stand/Gestures/ShowTablet_3) Okay, let's get started! Here is a demonstration of our first exercise ^wait(animations/Stand/Gestures/ShowTablet_3)"
             print strsay
             say_vid_1 = threading.Thread(name = "say_disp_vid_1", target = my_say, args = (app, strsay, language, speed))
             say_vid_1.daemon = True
             say_vid_1.start()
             say_vid_1.do_run = False
             
-            #time.sleep(1)
+            # Display instructions video for the first exercise by calling "vid_disp" function on its own thread
             video_display_thread = threading.Thread(name = "diplay_video_1", target = vid_disp, args=(exercise_dict["first"]["url"],))
             video_display_thread.daemon = True        
             video_display_thread.start()
 
+            # Update flag and wait 5 seconds
             showed_first_video = True
-
             time.sleep(5)
 
-            # vid_1_start_time = time.time()
-            #while (time.time() - vid_1_start_time < 7):
-                #pass
-            
-            ready_4_1_str = "Ready to start the first exercise ?"
-            print ready_4_1_str
-            say_ready_1 = threading.Thread(name = "ask_ready_4_1", target = my_say, args = (app, ready_4_1_str, language, speed))
-            say_ready_1.daemon = True
-            say_ready_1.start()
-            say_ready_1.do_run = False
-
-            time.sleep(4)
-
+            # Move joints to exercise configuration by calling the "move" function on its own thread
             move_def_thread = threading.Thread(name = "move_to_def", target = move, args = (session, default_pos))
             move_def_thread.daemon = True
             move_def_thread.start()
 
             
-            monitor_fb_thread = threading.Thread(name = "monitor_fb_ex1", target = monitor_fist_bump, args = (memory_service, touch_service, right_count, left_count, 1))
-            monitor_fb_thread.daemon = True
-            monitor_fb_thread.start()
+            #monitor_fb_thread = threading.Thread(name = "monitor_fb_ex1", target = monitor_fist_bump, args = (memory_service, touch_service, right_count, left_count, 1))
+            #monitor_fb_thread.daemon = True
+            #monitor_fb_thread.start()
 
+    # If ASR detects "YES" and greeting the user AND showing them the instructions video for first exercise are done
     elif greeting_done == True and showed_first_video == True and showed_second_video == False and value[0] == "yes" and value[1] >= 0.41:
         if exercise_dict["first"]["isDone"] == False and in_pain == False:
+        # Start the fist exercise timer, move joints, and monitor tactile sensors on both hands
 
+            # Unsubscribe from ASR service as it is no longer needed
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
         
+            # Move joints to exercise joint configuration by calling the "move" function on its own thread
             exercise_thread = threading.Thread(name = "move_to_ex_1", target = move, args = (session, my_pos))
             exercise_thread.daemon = True
             exercise_thread.start()
             
+            # Wait until motion is done
             time.sleep(2)
             
+            # Say "Starting now" string by calling "my_say" function on its own thread
             start_timer1_str = "^mode(disabled) Okay ! Starting timer"  
             say_st_time1_thread = threading.Thread(name = "say_timer_1", target = my_say, args = (app, start_timer1_str, language, speed))
             say_st_time1_thread.daemon = True
             say_st_time1_thread.start()
             say_st_time1_thread.do_run = False
 
+            # Display 10 second countdown video on tablet by calling "vid_disp" function on its own thread
             timer1_display_timer_thread = threading.Thread(name = "diplay_ex_1_timer", target = vid_disp, args=(exercise_dict["timer"]["url"],))
             timer1_display_timer_thread.daemon = True        
             timer1_display_timer_thread.start()
             
-
-            monitorThread = threading.Thread(name = "monitor_hands_ex1", target = rhMonitorThread, args = (memory_service, touch_service, right_count, left_count, 1))
+            # Start the execution monitoring for exercise sequence by calling "run_exercise" function on its own thread
+            monitorThread = threading.Thread(name = "monitor_hands_ex1", target = run_exercise, args = (memory_service, touch_service, right_count, left_count, 1))
             monitorThread.daemon = True
             monitorThread.start()
         
-            
-            #monitorThread.do_run = False
-
+        # If ASR detects "YES" and greeting the user AND the first exercise is done AND user is NOT in pain / doesn't need doctor
         elif exercise_dict["first"]["isDone"] == True and exercise_dict["second"]["isDone"] == False and in_pain == False and ask_pain == False:
+        # Give them some rest and show them the instruction video for the second exercise
 
-            #subWordRecognized.signal.disconnect(idSubWordRecognized)
-            
-
-            count_30_str = " Great! \\pau=300\\. Let's rest before the second exercise. \\pau=500\\. ^start(animations/Stand/Gestures/ShowTablet_3) Counting 10 seconds of rest now ^wait(animations/Stand/Gestures/ShowTablet_3)"  
+            # Say "Let's rest" string by calling "my_say" function on its own thread
+            count_30_str = "Great! \\pau=300\\. ^start(animations/Stand/Gestures/ShowTablet_3) Let's rest before the next exercise. ^wait(animations/Stand/Gestures/ShowTablet_3)"
             print count_30_str
             say_c30_thread = threading.Thread(name = "say_counting_10", target = my_say, args = (app, count_30_str, language, speed))
             say_c30_thread.daemon = True
             say_c30_thread.start()
             say_c30_thread.do_run = False
 
+            # Wait until Pepper is saying the string
             time.sleep(5)            
 
+            # Move joints to default joint configuration by calling the "move" function on its own thread
             move_def_thread = threading.Thread(name = "move_to_def", target = move, args = (session, default_pos))
             move_def_thread.daemon = True
             move_def_thread.start()
             
+            # Get current time
             start_time = time.time()
 
+            # Display 10 second REST countdown video on tablet by calling "vid_disp" function on its own thread
             video_display_2_thread = threading.Thread(name = "diplay_timer_video", target = vid_disp, args=(exercise_dict["timer"]["url"],))
             video_display_2_thread.daemon = True        
             video_display_2_thread.start()
             
-            
+            # Wait until REST countdown video is done
             while (time.time() - start_time < 12):
                 pass
 
-            rest_str = "^start(animations/Stand/Gestures/Give_1) Rest is done!"  
+            # Say "Let's get back" string by calling "my_say" function on its own thread
+            rest_str = "^start(animations/Stand/Gestures/Give_1) Let's get back to work!"  
             print rest_str
             rest_say_thread = threading.Thread(name = "say_rest_done", target = my_say, args = (app, rest_str, language, speed))
             rest_say_thread.daemon = True
             rest_say_thread.start()
             rest_say_thread.do_run = False
 
-
-            say_video_2_str = "^start (animations/Stand/Gestures/ShowTablet_3) Here is a video of exercise ^wait(animations/Stand/Gestures/ShowTablet_3)" + exercise_dict["second"]["number"]
+            # Say "Video for second exercise" string by calling "my_say" function on its own thread
+            say_video_2_str = "^start (animations/Stand/Gestures/ShowTablet_3) Here is a demonstration of the second exercise ^wait(animations/Stand/Gestures/ShowTablet_3)"
             print say_video_2_str
             say_vid_2 = threading.Thread(name = "say_disp_vid_2", target = my_say, args = (app, say_video_2_str, language, speed))
             say_vid_2.daemon = True
@@ -676,83 +763,86 @@ def onWordRecognized(value):
             time.sleep(1)
             say_vid_2.do_run = False
 
+            # Display instructions video for the first exercise by calling "vid_disp" function on its own thread
             video_display_2_thread = threading.Thread(name = "diplay_video_2", target = vid_disp, args=(exercise_dict["second"]["url"],))
             video_display_2_thread.daemon = True        
             video_display_2_thread.start()
 
+            # Wait until Pepper finishes saying the string and update flag
             time.sleep(6)        
-
             showed_second_video = True
-
-            ready_4_2_str = "Ready to start ?"
-            print ready_4_2_str
-            say_ready_2 = threading.Thread(name = "ask_ready_4_2", target = my_say, args = (app, ready_4_2_str, language, speed))
-            say_ready_2.daemon = True
-            say_ready_2.start()
-            say_ready_2.do_run = False
-
             time.sleep(2)
 
+            # Move joints to default joint configuration by calling the "move" function on its own thread
             move_def_thread = threading.Thread(name = "move_to_def", target = move, args = (session, default_pos))
             move_def_thread.daemon = True
             move_def_thread.start()   
 
-            monitor_fb_thread = threading.Thread(name = "monitor_fb_ex2", target = monitor_fist_bump, args = (memory_service, touch_service, right_count, left_count, 2))
-            monitor_fb_thread.daemon = True
-            monitor_fb_thread.start()         
+            #monitor_fb_thread = threading.Thread(name = "monitor_fb_ex2", target = monitor_fist_bump, args = (memory_service, touch_service, right_count, left_count, 2))
+            #monitor_fb_thread.daemon = True
+            #monitor_fb_thread.start()         
         
+    # If ASR detects "YES" and greeting the user AND the first exercise is done AND user is NOT in pain / doesn't need doctor
     elif greeting_done == True and showed_first_video == True and showed_second_video == True and value[0] == "yes" and value[1] >= 0.41:
-        print "Passed first condition"
+        # If we already showed the user instructions video for the second exercise
         if exercise_dict["first"]["isDone"] == True and exercise_dict["second"]["isDone"] == False and (ask_pain == False or vid2_after_long_rest == True) and in_pain == False:
             
+            # Unsubscribe from ASR service as it is no longer needed
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
 
             print "Doing exercise 2 now!"
             
+            # Move joints to exercise joint configuration by calling the "move" function on its own thread
             exercise_2_thread = threading.Thread(name = "move_to_ex_2", target = move, args = (session, my_pos))
             exercise_2_thread.daemon = True
             exercise_2_thread.start()
 
-            time.sleep(6)
+            # Wait until motion is done
+            time.sleep(3)
 
+            # Say "Starting now" string by calling "my_say" function on its own thread
             start_timer2_str = "^mode(disabled) Okay ! Starting timer"  
             say_st_time2_thread = threading.Thread(name = "say_timer_2", target = my_say, args = (app, start_timer2_str, language, speed))
             say_st_time2_thread.daemon = True
             say_st_time2_thread.start()
             say_st_time2_thread.do_run = False
 
+            # Display 10 second countdown video on tablet by calling "vid_disp" function on its own thread
             timer2_display_timer_thread = threading.Thread(name = "diplay_ex_2_timer", target = vid_disp, args=(exercise_dict["timer"]["url"],))
             timer2_display_timer_thread.daemon = True        
             timer2_display_timer_thread.start()
 
-
-            monitorThread = threading.Thread(name = "monitor_hands_ex2", target = rhMonitorThread, args = (memory_service, touch_service, right_count, left_count, 2))
+            # Start the execution monitoring for exercise sequence by calling "run_exercise" function on its own thread
+            monitorThread = threading.Thread(name = "monitor_hands_ex2", target = run_exercise, args = (memory_service, touch_service, right_count, left_count, 2))
             monitorThread.daemon = True
             monitorThread.start()
-            
-            #asr_service.unsubscribe("Test_ASR")
-            #asr_on = False
-            #subWordRecognized.signal.disconnect(idSubWordRecognized)
-            #app.stop()
-
+        
+    # If ASR detects "NO" and greeting the user is done
     elif greeting_done == True and value[0] == "no" and value[1] >= 0.51:
+        # If NO exercises are done yet
         if exercise_dict["first"]["isDone"] == False and exercise_dict["second"]["isDone"] == False and in_pain == False:
+        # End the interaction and tell the user to re-schdule
+
             print "Exiting..."
 
+            # Unsubscribe from ASR service as it is no longer needed
             asr_service.unsubscribe("Test_ASR")
             asr_on = False
-            #subWordRecognized.signal.disconnect(idSubWordRecognized)
         
-            shut_down_str = "Shutting down"
+            # Say "Reschedule" string by calling "my_say" function on its own thread
+            shut_down_str = "^mode(disabled) Shutting down, please reshcdule when you're feeling better"
             say_shut_thread = threading.Thread(name = "say_shut_down", target = my_say, args = (app, shut_down_str, language, speed))
             say_shut_thread.start()
             say_shut_thread.do_run = False
             app.stop()
 
+        # If ONLY the first exercise is done
         elif exercise_dict["first"]["isDone"] == True and exercise_dict["second"]["isDone"] == False and ask_pain == False:
-            
-            pain_str =  "^start(animations/Stand/Gestures/Choice_1) Are you Okay ? Should I call the doctor ? ^wait(animations/Stand/Gestures/Choice_1) Say \"Yes\" or touch any of my hands and I will call the doctor."
+        # Ask the user if they said NO to the second exercise because they are in pain and want to see their doctor
+
+            # Say "Are you in pain" string by calling "my_say" function on its own thread
+            pain_str =  "^start(animations/Stand/Gestures/Choice_1) Is everything alright ? Do you need me to call the doctor ? ^wait(animations/Stand/Gestures/Choice_1) If so, say \"Yes\" or touch any of my hands."
             print pain_str
 
             say_pain_thread = threading.Thread(name = "say_in_pain", target = my_say, args = (app, pain_str, language, speed))
@@ -761,6 +851,7 @@ def onWordRecognized(value):
             time.sleep(2)
             ask_pain = True
 
+            # Move Pepper's hands closer to the user to allow them touch by calling "move" function on its own thread
             monitorThread = threading.Thread(name = "monitor_hands_for_doc", target = get_doc, args = (memory_service, touch_service, right_count, left_count, 1))
             monitorThread.daemon = True
             monitorThread.start()
@@ -769,13 +860,22 @@ def onWordRecognized(value):
 
 def vid_disp(url_to_disp):
     """
-    This example uses the playVideo method.
-    To Test ALTabletService, you need to run the script ON the robot.
+    This function is responsible for displaying images and videos on the on-board tablet, more specifically:
+
+    - For the first and second exercises:
+        Pepper displays the instructional video for each exercise, gives the user verbal instructions to
+        touch its hands it in order for it to monitor execution, and asks the user if they are ready to go after
+        having finished watching the instructions. It also displays countdowns for the duration of each exercise
+
+    - For any other case:
+        Pepper simply displays the image / video
+    
     """
 
+    # Global variables
     global exercise_dict
 
-    # Get the service ALTabletService.
+    # Get the service ALTabletService and connect to on-board tablet
     session = qi.Session()
     try:
         session.connect("tcp://" + os.environ['PEPPER_IP'] + ":" + "9559")
@@ -787,106 +887,71 @@ def vid_disp(url_to_disp):
     try:
         tabletService = session.service("ALTabletService")
 
-        # Ensure that the tablet wifi is enable
+        # Ensure that the tablet wifi is enabled
         tabletService.enableWifi()
 
-        # Play a video from the web and display the player
-        # If you want to play a local video, the ip of the robot from the tablet is 198.18.0.1
-        # Put the video in the HTML folder of your behavior
-        # "http://198.18.0.1/apps/my_behavior/my_video.mp4"
-
         print "Displaying video now"
-        #https://cmeimg-a.akamaihd.net/640/ppds/3ed04e1e-c4de-4f73-83ff-1923fa6e56bd.gif
-        #tabletService.playVideo("https://media.giphy.com/media/hXD7h0AFIX3poVuFV3/giphy.mp4")
-        #tabletService.playVideo("https://media.giphy.com/media/JSjfefFkzyTuQLykfz/giphy.mp4")
-        
-        #tabletService.playVideo("https://media.giphy.com/media/5t9IcXiBCyw60XPpGu/giphy.mp4")
-        #tabletService.playVideo("http://clips.vorwaerts-gmbh.de/big_buck_bunny.mp4")
 
- 
-        #time.sleep(2)
-
-        # Display the time elapse / the total time of the video
-        #print tabletService.getVideoPosition(), " / ", tabletService.getVideoLength()
-  
-        # Pause the video
-        #tabletService.pauseVideo()
-
+        # If we want to display instructions video for either exercise
         if url_to_disp == exercise_dict["first"]["url"] or url_to_disp == exercise_dict["second"]["url"]:
-            instruct_str = "I will be your partner, just like the person on the left is."
-            print instruct_str
-            instuct_say_thread = threading.Thread(name = "say_instruct_ex_1", target = my_say, args = (app, instruct_str, language, speed))
-            instuct_say_thread.start()
-            instuct_say_thread.do_run = False
-            time.sleep(3)
-            
 
-            motivate_str = "Touch the outside of my hand as many times as you can in 30 seconds!"
+            # Say instructions for either exercise by calling "my_say" function on its own thread
+            motivate_str = "Touch the outside of my hand as many times as you can in 10 seconds!"
             print motivate_str
             motivate_say_thread = threading.Thread(name = "say_touch_hands", target = my_say, args = (app, motivate_str, language, speed))
             motivate_say_thread.start()
             time.sleep(3)
             motivate_say_thread.do_run = False
+
+            # Say instructions for either exercise by calling "my_say" function on its own thread
+            instruct_str = "Remember, always use proper form, as my friend in the video."
+            print instruct_str
+            instuct_say_thread = threading.Thread(name = "say_instruct_ex_1", target = my_say, args = (app, instruct_str, language, speed))
+            instuct_say_thread.start()
+            instuct_say_thread.do_run = False
             
-
-            #time.sleep(3)
-        
+            # Play instructions video and wait until video is done
             tabletService.playVideo(url_to_disp)
+            time.sleep(5)            
 
+            # Say "ready to go" string by calling "my_say" function on its own thread
+            ready_4_1_str = "Ready to go ?"
+            print ready_4_1_str
+            say_ready_1 = threading.Thread(name = "ask_ready_4_1", target = my_say, args = (app, ready_4_1_str, language, speed))
+            say_ready_1.daemon = True
+            say_ready_1.start()
+            say_ready_1.do_run = False
+
+            time.sleep(4)
+        
+        # In case we want to display anything else other than the instructions video for the exercises
         elif url_to_disp == exercise_dict["dial"]["url"]:
             tabletService.showImage(url_to_disp)
-            #time.sleep(5) 
-            #tabletService.hideImage()
-
-            #time.sleep(3)
-            # resume the video
-            #tabletService.resumeVideo()
-            """  
-            time.sleep(3)
-            """
-            # stop the video and hide the player
-            #tabletService.stopVideo()
 
         elif url_to_disp == exercise_dict["done"]["url"]:
             tabletService.showImage(url_to_disp)
-            #time.sleep(5) 
-            #tabletService.hideImage()
 
         elif url_to_disp == exercise_dict["robot_coach"]["url"]:
             tabletService.showImage(url_to_disp)
 
         elif url_to_disp == exercise_dict["timer"]["url"] or url_to_disp == exercise_dict["timer2"]["url"]:
             tabletService.playVideo(url_to_disp)
-            
 
-
+    # If we failed to connect to the tablet service for a specific error, print that error
     except Exception, e:
         print "Error was: ", e
     return
 
 
-def play_audio():
-
-    session = qi.Session()
-    ap_service = session.service("ALAudioPlayer")
-
-    try:
-        #Loads a file and launchs the playing 5 seconds later
-        fileId = ap_service.loadFile(os.path.abspath(afile))
-        fileLength =ap_service.getFileLength(fileId)
-        print 'Playing '+afile+'. Duration: '+ str(fileLength) +' secs. Press Ctrl+C to stop'
-        ap_service.play(fileId, _async = True)
-    except KeyboardInterrupt:
-        ap_service.stopAll()
-        print('Quitting')
-        sys.exit(0)
-
-    return
-
-
 if __name__ == "__main__":
+"""
+Main function responsible for connecting to Pepper and all relevant modules, subscribing to all events
+and callback functions as well as defining all relevant global variables.
 
+It is the function that runs the "app" that runs the entire code on Pepper
+"""
 
+    # Initialize all global variables that will be needed by all functions
     global asr_on
     asr_on = False
     global greeting_done
@@ -921,6 +986,7 @@ if __name__ == "__main__":
     global vid2_after_long_rest
     vid2_after_long_rest = False
 
+    # Dictionary that includes the URLS for all vidoes and images we want to display
     global exercise_dict
     exercise_dict = {"first": {"number": "1", "url": "https://media.giphy.com/media/ZC60rOP0m9p7lPEqML/giphy.mp4" \
                               , "isDone": False, "pos": [0.00, -0.21, 1.00, 0.13, -1.24, -0.52, 1.00, 1.00, -0.14, 1.22, 0.52, -1.00]}, \
@@ -933,7 +999,7 @@ if __name__ == "__main__":
                                "done": {"url": "https://www.axcelora.com/uploads/1/9/3/0/19308813/1427170805.png"}    } 
 
 
-
+    # Get all command line arguments
     args = parse_args()
 
     pip = args.pip
@@ -941,30 +1007,33 @@ if __name__ == "__main__":
     language = args.language
     speed = args.speed
 
+    # Connect to Pepper
     app = connect_to_pep(pip, pport)
 
+    # Start the session
     app.start()  
     session = app.session
 
+    # Set English language and subscribe to Automatic Speech Recognition module
     asr_service = session.service("ALSpeechRecognition")
     asr_service.setLanguage("English")
 
-    #asr_service.unsubscribe("Test_ASR")
-
+    # Get Touch and Memory services
     memory_service  = session.service("ALMemory")
     touch_service = session.service("ALTouch")
 
-    #establishing test vocabulary
-    vocabulary = ["yes", "no", "John"]
+    # Establishing vocabulary for the ASR
+    vocabulary = ["yes", "no", "Luca"]
     asr_service.setVocabulary(vocabulary, False)
 
+    # Pepper introduces itself by calling "my_say" function on its own thread
     intro_str = "^start(animations/Stand/Gestures/Hey_6) Hello ^wait(animations/Stand/Gestures/Hey_6), ^start(animations/Stand/Gestures/Me_1) I am Pepper. ^wait(animations/Stand/Gestures/Me_1) If I don't respond to your answers, ^start(animations/Stand/Gestures/Please_1) please repeat what you said ^wait(animations/Stand/Gestures/Please_1), ^start(animations/Stand/Gestures/Think_1) What's your name? ^wait(animations/Stand/Gestures/Think_1)"  
     print intro_str
     intro_say_thread = threading.Thread(name = "saying_intro", target = my_say, args = (app, intro_str, language, speed))
     intro_say_thread.start()
     intro_say_thread.do_run = False
 
-
+    # Display Image that is shown throughout the interaction on tablet by calling "vid_disp" function on its own thread
     video_display_2_thread = threading.Thread(name = "diplay_video_2", target = vid_disp, args=(exercise_dict["robot_coach"]["url"],))
     video_display_2_thread.daemon = True        
     video_display_2_thread.start()
@@ -975,27 +1044,25 @@ if __name__ == "__main__":
     asr_on = True
     print 'Speech recognition engine started'
 
+    # Subscribe to event "WordRecognized" and set callback function
     nameRecognized = memory_service.subscriber("WordRecognized")
     global idNameRecognized
     idNameRecognized = nameRecognized.signal.connect(onNameRecognized)
 
-    #if greeting_done == True:
-    #subscribe to event WordRecognized
+    # Subscribe to event "WordRecognized" and set callback function
     subWordRecognized = memory_service.subscriber("WordRecognized")
     global idSubWordRecognized
     idSubWordRecognized = subWordRecognized.signal.connect(onWordRecognized)
 
-    # Do I need a 3rd function for the 2nd exercises ??
+    # Subscribe to event "WordRecognized" and set callback function
     painRecognized = memory_service.subscriber("WordRecognized")
     global idPainRecognized
     idPainRecognized = painRecognized.signal.connect(onPainRecognized)
 
-
-    #let it run
+    # Run the app
     app.run()
 
-    #move_thread.do_run = False
-
+    # When the app stops running, ensure that we UNsubscribe from the ASR module
     if asr_on == True:
         asr_service.unsubscribe("Test_ASR")
         subWordRecognized.signal.disconnect(idSubWordRecognized)
@@ -1003,18 +1070,20 @@ if __name__ == "__main__":
     elif asr_on == False:
         pass
 
-
+    # List of Pepper's joints that we need to move
     jointsNames = ["HeadYaw", "HeadPitch",
                "LShoulderPitch", "LShoulderRoll", "LElbowYaw", "LElbowRoll", "LWristYaw",
                "RShoulderPitch", "RShoulderRoll", "RElbowYaw", "RElbowRoll", "RWristYaw"]
 
+    # Get motion service
     motion_service  = session.service("ALMotion")
     isAbsolute = True
 
+    # Ensure joints move to default position once the app / code / interaction is done
     default_pos = [0.00, -0.21, 1.55, 0.13, -1.24, -0.52, 0.01, 1.56, -0.14, 1.22, 0.52, -0.01]
     motion_service.angleInterpolation(jointsNames, default_pos, 3.0, isAbsolute)
 
-
+    # Print all done for debugging
     print "Finished"
 
 
